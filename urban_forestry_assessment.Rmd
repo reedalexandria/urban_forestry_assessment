@@ -1,0 +1,214 @@
+---
+title: "Urban Forestry Assessment"
+author: "Alexandria Reed"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    includes:
+      after_body: footer.html
+    code_folding: "show"
+    toc: true
+    toc_float: true
+---
+
+# Load Libraries
+
+#### Various packages for wrangling, spatial analysis, and data visualization
+```{r, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(sf)
+library(ggplot2)
+library(leaflet)
+library(tmap)
+library(units)
+library(RColorBrewer)
+```
+
+# Read in Data
+
+#### Working with tabular data (CSV and Excel files) and vector data (shapefiles)
+```{r, results="hide"}
+# Sample inventory
+inventory <- read.csv("sample_data/sample_inventory.csv") 
+
+# Sample water use ratings
+rating <- read_excel("sample_data/sample_water_use_ratings.xlsx")
+
+# Sample shapefiles for canopy, census tracts, and city boundaries
+canopy <- st_read("sample_data/sample_canopy_shp/sample_canopy_polygons.shp")
+census <- st_read("sample_data/sample_census_tracts/sample_census_tracts.shp")
+city_bounds <- st_read("sample_data/sample_city_boundary/sample_city_boundary.shp")
+```
+
+# Data Exploration
+
+#### Familiarizing myself with the tabular data and using `tmap` to view the shapefiles
+```{r, results="hide", message=FALSE}
+# Exploring tabular data
+summary(inventory)
+# Platanus_x_acerifolia and Platanus_x_hispanica have the same common name
+
+summary(rating)
+
+# Viewing vector data 
+tmap_mode("view") +
+tm_shape(canopy) +
+  tm_polygons()
+
+tmap_mode("view") +
+tm_shape(census) +
+  tm_polygons()
+
+tmap_mode("view") +
+tm_shape(city_bounds) +
+  tm_polygons()
+```
+
+# Visualization that shows the percent of trees in the inventory that fall into each water use rating category based on species.
+
+#### Calculating percent of trees in each water use rating category based on species
+```{r, message = FALSE}
+# Calculate the percent of each water use rating category for each species
+rating_percent <- inventory |>
+  left_join(rating, by = c("scientific_name" = "species")) |>
+  group_by(scientific_name, water_use_rating) |>
+  summarize(percent = n() / nrow(inventory) * 100)
+```
+
+
+#### Creating a bar plot using `ggplot2`
+```{r, message=FALSE, fig.align="center", fig.width=8, fig.height=6, fig.cap="Figure 1: This visualization illustrates the proportion of trees within the inventory categorized by their water use rating, segmented by species."}
+# Wrangling for plot
+# Change special value to character string so that I can change the order
+rating_percent[6, 2] <- "NA"
+
+# Reorder the levels of water_use_rating based on custom order
+custom_order <- c("NA", "High", "Low", "Moderate", "Very Low")
+rating_percent$water_use_rating <- fct_relevel(rating_percent$water_use_rating, custom_order)
+
+# Create the plot
+ggplot(rating_percent, aes(x = water_use_rating, y = percent, fill = scientific_name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(percent, "%"), group = scientific_name), 
+            position = position_stack(vjust = 0.5), size = 3.5, color = "black") +
+  labs(title = "Distribution of Trees by Water Use Rating and Species",
+       x = "Species", 
+       y = "Trees (%)") +
+  theme_minimal() +
+  #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip() +
+  guides(fill = guide_legend(title = "Species")) +
+  scale_fill_brewer(palette = "BrBG") 
+  #scale_y_continuous(expand = expansion(mult = c(0, 0.05))) 
+```
+
+```{r, include=FALSE}
+# Not included in html
+# One approach, but doesn't answer the prompt as clearly
+
+# Calculate the percentage of each water use rating category for each species
+rating_percent <- inventory |>
+  left_join(rating, by = c("scientific_name" = "species")) |>
+  group_by(scientific_name, water_use_rating) |>
+  summarize(percent = n() / nrow(inventory) * 100)
+
+# Sort percent in descending order
+rating_percent <- rating_percent[order(rating_percent$percent, decreasing = TRUE), ]
+
+# Change special value to character string so that I can give it a specific color
+rating_percent[3, 2] <- "NA"
+
+# Create the plot
+ggplot(rating_percent, aes(x = reorder(scientific_name, percent), y = percent, fill = water_use_rating)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("High" = brewer.pal(9, "Blues")[7],
+                               "Moderate" = brewer.pal(9, "Blues")[6],
+                               "Low" = brewer.pal(9, "Blues")[5],
+                               "Very Low" = brewer.pal(9, "Blues")[4],
+                               "NA" = "grey"),
+                                        limits = c("High", "Moderate", "Low", "Very Low", "NA")) +
+    labs(title = "Distribution of Trees by Water Use Rating and Species",
+       x = "Species", 
+       y = "Trees (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip() +
+  geom_text(aes(label = paste0(percent,"%"), y = percent), 
+            hjust = -0.15,  
+            size = 3.5) +  
+  guides(fill = guide_legend(title = "Water Use Rating")) +
+  ylim(0, 33)  
+```
+
+# Map showing the canopy cover percent for each council district.
+
+#### Geospatial analysis using `sf`, `dplyr`, and `units`
+```{r, warning=FALSE}
+# Calculate the intersection of census tracts and canopy polygons
+intersection <- st_intersection(census, canopy)
+
+# Calculate canopy area (convert m² to acres)
+intersection$canopy_area_acres <- st_area(intersection) / 4046.86
+
+# Calculate canopy cover for each census tract
+canopy_cover <- intersection |>
+  group_by(tract) |>
+  summarise(canopy_area = sum(canopy_area_acres)) |>
+  st_drop_geometry() # drop so that we can merge seamlessly
+
+# Merge the canopy cover data with the census data 
+census_w_canopy_cover <- merge(census, canopy_cover, by = "tract")
+
+# Drop units for clarity
+census_w_canopy_cover <- drop_units(census_w_canopy_cover)
+
+# Calculate the percentage of canopy cover for each census tract
+census_w_canopy_cover$canopy_cover_percent <- (census_w_canopy_cover$canopy_area / census_w_canopy_cover$acres) * 100
+```
+
+#### Using `leaflet` to create the map
+
+<style>
+.leaflet {
+    margin: auto;
+}
+</style>
+
+```{r}
+# Create the leaflet map
+color_pal <- colorNumeric(palette = "Greens", domain = census_w_canopy_cover$canopy_cover_percent)
+
+leaflet(census_w_canopy_cover) |>
+  addProviderTiles("Esri.WorldTopoMap") |>
+  addPolygons(fillColor = ~color_pal(canopy_cover_percent),
+              fillOpacity = 0.7,
+              color = "black",
+              weight = 1,
+              popup = paste("Tract ID: ", census_w_canopy_cover$tract, "<br>",
+                            "Canopy Cover: ", paste0(round(census_w_canopy_cover$canopy_cover_percent, 2), "%"))) |>
+  addLegend(pal = color_pal,
+            values = ~canopy_cover_percent,
+            title = "Canopy Cover (%)",
+            position = "bottomright")
+```
+
+# Function for Calculating Total Canopy Area
+
+#### Creating the function that calculates the total canopy area (in square feet) of the tree inventory based on the canopy width attribute
+```{r}
+# Formula to calculate the area of a circular canopy is pi * (radius^2)
+# Function to calculate total canopy area
+calculate_total_canopy_area <- function(inventory) {
+  total_area <- sum(pi * (0.5 * inventory$canopy_width_ft)^2)
+  return(total_area)
+}
+
+# Calculate total canopy area
+total_canopy_area <- calculate_total_canopy_area(inventory)
+
+# Print the total canopy area
+cat("The total canopy area is", format(total_canopy_area, big.mark = ",", scientific = FALSE), "square feet.")
+```
+
