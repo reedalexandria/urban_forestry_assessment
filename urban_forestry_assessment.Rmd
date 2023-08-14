@@ -130,7 +130,7 @@ ggplot(rating_percent, aes(x = reorder(scientific_name, percent), y = percent, f
                                         limits = c("High", "Moderate", "Low", "Very Low", "NA")) +
     labs(title = "Distribution of Trees by Water Use Rating and Species",
        x = "Species", 
-       y = "Trees (%)") +
+       y = "Percent of Trees") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   coord_flip() +
