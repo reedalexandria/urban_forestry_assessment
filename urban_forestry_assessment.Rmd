@@ -94,14 +94,13 @@ ggplot(rating_percent, aes(x = water_use_rating, y = percent, fill = scientific_
   geom_text(aes(label = paste0(percent, "%"), group = scientific_name), 
             position = position_stack(vjust = 0.5), size = 3.5, color = "black") +
   labs(title = "Distribution of Trees by Water Use Rating and Species",
-       x = "Species", 
+       x = "Water Use Rating", 
        y = "Trees (%)") +
   theme_minimal() +
   #theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   coord_flip() +
   guides(fill = guide_legend(title = "Species")) +
   scale_fill_brewer(palette = "BrBG") 
-  #scale_y_continuous(expand = expansion(mult = c(0, 0.05))) 
 ```
 
 ```{r, include=FALSE}
